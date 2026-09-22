@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<title>Candy Castle</title>
+	<meta name="description" content="An interactive 3D candy castle built with three.js and WebGPU.">
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍭</text></svg>">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Chewy&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+	<style>
+		:root {
+			--pink: #ff5fa2;
+			--ink: #5a2350;
+			--glass: rgba(255, 255, 255, 0.55);
+			--glass-edge: rgba(255, 255, 255, 0.8);
+		}
+		* { box-sizing: border-box; }
+		html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9ec; font-family: 'Nunito', system-ui, sans-serif; color: var(--ink); }
+		#app canvas { display: block; touch-action: none; cursor: grab; }
+		#app canvas:active { cursor: grabbing; }
+
+		.title {
+			position: fixed; top: 18px; left: 22px; pointer-events: none;
+			opacity: 0; transform: translateY(-12px); transition: opacity 1.2s 0.6s, transform 1.2s 0.6s;
+		}
+		.ready .title { opacity: 1; transform: none; }
+		.title h1 {
+			margin: 0; font-family: 'Chewy', cursive; font-weight: 400; font-size: clamp(34px, 6vw, 64px); line-height: 1;
+			color: #fff; letter-spacing: 1px;
+			text-shadow: 0 3px 0 #ff5fa2, 0 6px 0 #d63f86, 0 10px 24px rgba(214, 63, 134, 0.45);
+		}
+		.title p { margin: 8px 2px 0; font-weight: 800; font-size: 14px; color: #fff; text-shadow: 0 1px 6px rgba(120, 30, 90, 0.5); }
+
+		.badge {
+			position: fixed; top: 18px; right: 18px; padding: 6px 12px; border-radius: 999px;
+			background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+			font-weight: 800; font-size: 12px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;
+		}
+		.badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #39d98a; box-shadow: 0 0 8px #39d98a; }
+		.badge.fallback::before { background: #ffb627; box-shadow: 0 0 8px #ffb627; }
+		.counter { position: fixed; top: 54px; right: 18px; font-weight: 800; font-size: 12px; color: #fff; text-shadow: 0 1px 5px rgba(120, 30, 90, 0.6); }
+
+		.dock {
+			position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translate(-50%, 30px); opacity: 0;
+			display: flex; gap: 8px; padding: 8px; border-radius: 22px; max-width: calc(100vw - 32px); overflow-x: auto;
+			background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+			box-shadow: 0 10px 40px rgba(180, 60, 130, 0.25); transition: opacity 0.8s 1s, transform 0.8s 1s;
+			scrollbar-width: none;
+		}
+		.ready .dock { opacity: 1; transform: translate(-50%, 0); }
+		.dock button {
+			flex: 0 0 auto; border: 0; cursor: pointer; font: inherit; font-weight: 800; font-size: 13px; color: var(--ink);
+			display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; min-width: 68px; border-radius: 16px;
+			background: rgba(255, 255, 255, 0.7); transition: transform 0.15s, background 0.2s, box-shadow 0.2s;
+		}
+		.dock button .i { font-size: 22px; line-height: 1.1; }
+		.dock button:hover { transform: translateY(-3px) scale(1.04); background: #fff; }
+		.dock button:active { transform: scale(0.94); }
+		.dock button.on { background: linear-gradient(135deg, #ff7ab8, #b58bff); color: #fff; box-shadow: 0 4px 16px rgba(255, 95, 162, 0.5); }
+		.dock button kbd { font: inherit; font-size: 10px; opacity: 0.55; }
+		#btn-mute { min-width: 48px; font-size: 20px; }
+
+		#tip {
+			position: fixed; left: 0; top: 0; pointer-events: none; padding: 6px 12px; border-radius: 12px;
+			background: rgba(255, 255, 255, 0.9); font-weight: 800; font-size: 13px; white-space: nowrap;
+			box-shadow: 0 4px 16px rgba(180, 60, 130, 0.25); opacity: 0; transition: opacity 0.15s;
+		}
+		#tip.show { opacity: 1; }
+
+		#hint {
+			position: fixed; left: 50%; top: 22%; transform: translate(-50%, 10px); opacity: 0; pointer-events: none;
+			padding: 10px 18px; border-radius: 16px; background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(8px);
+			font-weight: 800; font-size: 14px; text-align: center; transition: opacity 0.8s, transform 0.8s; max-width: calc(100vw - 32px);
+		}
+		#hint.show { opacity: 1; transform: translate(-50%, 0); }
+
+		#loading {
+			position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+			background: radial-gradient(circle at 50% 40%, #fff0f7, #ffc2e2 60%, #e8b8ff); transition: opacity 1s, visibility 1s; z-index: 10;
+			font-family: 'Chewy', cursive; font-size: 28px; color: #d63f86;
+		}
+		#loading.done { opacity: 0; visibility: hidden; }
+		#loading p { font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 16px; color: var(--ink); }
+		.swirl {
+			width: 90px; height: 90px; margin: 0 auto 18px; border-radius: 50%;
+			background: repeating-conic-gradient(#ff5fa2 0 30deg, #fff 30deg 60deg);
+			box-shadow: 0 8px 30px rgba(214, 63, 134, 0.4), inset 0 0 0 6px rgba(255, 255, 255, 0.6);
+			animation: spin 1.2s linear infinite;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+
+		.hide-ui .title, .hide-ui .dock, .hide-ui .badge, .hide-ui .counter { opacity: 0 !important; pointer-events: none; }
+
+		@media (max-width: 640px) {
+			.title { top: 14px; left: 16px; }
+			.title p { display: none; }
+			.badge { top: 14px; right: 16px; }
+			.counter { display: none; }
+			.dock button { min-width: 58px; padding: 7px 8px; font-size: 11px; }
+			.dock button kbd { display: none; }
+		}
+	</style>
+	<script type="importmap">
+		{
+			"imports": {
+				"three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+				"three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.webgpu.js",
+				"three/tsl": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.tsl.js",
+				"three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+			}
+		}
+	</script>
+</head>
+<body>
+	<div id="app"></div>
+
+	<div class="title">
+		<h1>Candy Castle</h1>
+		<p>Drag to orbit · scroll to zoom · click everything!</p>
+	</div>
+	<div class="badge" id="backend">…</div>
+	<div class="counter">🍬 planted: <span id="planted">0</span></div>
+
+	<div class="dock">
+		<button id="btn-fireworks"><span class="i">🎆</span><span class="l">Fireworks</span><kbd>F</kbd></button>
+		<button id="btn-night"><span class="i">🌙</span><span class="l">Night</span><kbd>N</kbd></button>
+		<button id="btn-rush"><span class="i">🌈</span><span class="l">Sugar Rush</span><kbd>R</kbd></button>
+		<button id="btn-storm"><span class="i">🍬</span><span class="l">Sprinkles</span><kbd>S</kbd></button>
+		<button id="btn-music"><span class="i">🎵</span><span class="l">Music</span><kbd>M</kbd></button>
+		<button id="btn-mute" title="Sound on/off">🔊</button>
+	</div>
+
+	<div id="hint">Click towers, lollipops, gumdrops, donuts &amp; clouds.<br>Click the frosting to plant new candy 🍭</div>
+	<div id="tip"></div>
+
+	<div id="loading">
+		<div>
+			<div class="swirl"></div>
+			Baking the castle…
+			<p>Compiling sugary shaders</p>
+		</div>
+	</div>
+
+	<script type="module" src="./src/main.js"></script>
+</body>
+</html>
