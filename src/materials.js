@@ -2,11 +2,12 @@ import * as THREE from 'three/webgpu';
 import {
 	uniform, uv, vec2, vec3, float, color, mix, smoothstep, step, fract, floor,
 	sin, cos, atan, length, abs, min, max, pow, time, hash, positionLocal,
-	positionWorld, normalLocal, TWO_PI, mx_noise_float
+	positionWorld, normalLocal, normalView, positionViewDirection, dot, TWO_PI, mx_noise_float
 } from 'three/tsl';
 
 // Global scene uniforms shared by every shader.
 export const night = uniform( 0 ); // 0 = day, 1 = night
+export const heartFlash = uniform( 0 ); // spikes when the crystal heart is clicked
 
 // IQ-style rainbow palette, pushed a little towards pastel.
 export const palette = ( h ) => {
@@ -48,6 +49,15 @@ const memo = ( key, make ) => {
 
 };
 
+// Marks a material as safe to bake into merged static geometry: its pattern
+// only depends on uv or world position, never on the mesh's local space.
+const mergeable = ( m ) => {
+
+	m.userData.merge = true;
+	return m;
+
+};
+
 const glossy = ( opts = {} ) => new THREE.MeshPhysicalNodeMaterial( {
 	roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.06, ...opts
 } );
@@ -63,7 +73,7 @@ export function stripes( a, b, { cu = 6, cv = 3, width = 0.5, glow = 0 } = {} ) 
 		const t = smoothstep( width * 0.5 - 0.03, width * 0.5 + 0.03, d );
 		m.colorNode = mix( color( b ), color( a ), t );
 		if ( glow ) m.emissiveNode = mix( color( b ), color( a ), t ).mul( night.mul( glow ) );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -102,7 +112,7 @@ export function wafer( a, b ) {
 		const line = smoothstep( 0.1, 0.03, d );
 		const n = mx_noise_float( pw.mul( 3.0 ) ).mul( 0.06 );
 		m.colorNode = mix( color( a ), color( b ), line ).add( n );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -127,7 +137,7 @@ export function frosting( base, { sprinkleScale = 0, density = 0.55 } = {} ) {
 		}
 
 		m.colorNode = c;
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -163,7 +173,7 @@ export function waffle() {
 		const g2 = fract( uv().x.mul( 16 ).sub( uv().y.mul( 6 ) ) );
 		const d = min( min( g1, g1.oneMinus() ), min( g2, g2.oneMinus() ) );
 		m.colorNode = mix( color( 0xe8aa62 ), color( 0xa8652e ), smoothstep( 0.1, 0.03, d ) );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -189,8 +199,7 @@ export function candyGloss( c, opts = {} ) {
 
 	return memo( `gloss${c}${JSON.stringify( opts )}`, () => {
 
-		const m = glossy( { color: c, ...opts } );
-		return m;
+		return mergeable( glossy( { color: c, ...opts } ) );
 
 	} );
 
@@ -205,7 +214,7 @@ export function sponge() {
 		const n = mx_noise_float( positionWorld.mul( 1.6 ) );
 		const pores = smoothstep( 0.35, 0.6, n ).mul( 0.25 );
 		m.colorNode = mix( color( 0xf6cf7d ), color( 0xd59a45 ), pores );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -239,7 +248,7 @@ export function windowGlow() {
 		const flicker = sin( time.mul( 7 ).add( positionWorld.x.mul( 3 ) ) ).mul( 0.12 ).add( 0.88 );
 		m.colorNode = mix( color( 0x5b2c1a ), color( 0xffd27a ), night );
 		m.emissiveNode = color( 0xffa94d ).mul( night.mul( 4 ).mul( flicker ) );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -252,7 +261,7 @@ export function lamp( c ) {
 
 		const m = new THREE.MeshStandardNodeMaterial( { roughness: 0.2, color: c } );
 		m.emissiveNode = color( c ).mul( night.mul( 5 ).add( 0.25 ) );
-		return m;
+		return mergeable( m );
 
 	} );
 
@@ -270,6 +279,86 @@ export function cloud( c ) {
 		m.positionNode = positionLocal.add( normalLocal.mul( wobble ) );
 		m.colorNode = color( c );
 		m.emissiveNode = color( c ).mul( mix( float( 0.12 ), float( 0.35 ), night ) );
+		return m;
+
+	} );
+
+}
+
+// Pennant flag: the plane is squeezed into a triangle and waves in the wind.
+export function flag( a, b ) {
+
+	return memo( `flag${a}${b}`, () => {
+
+		const m = new THREE.MeshStandardNodeMaterial( { side: THREE.DoubleSide, roughness: 0.55 } );
+		const p = positionLocal;
+		const u = uv().x; // 0 at the pole
+		const wave = sin( time.mul( 6 ).sub( p.x.mul( 1.8 ) ) ).mul( u.mul( 0.45 ) )
+			.add( sin( time.mul( 3.1 ).sub( p.x ) ).mul( u.mul( 0.15 ) ) );
+		m.positionNode = vec3( p.x, p.y.mul( float( 1 ).sub( u.mul( 0.9 ) ) ), p.z.add( wave ) );
+		m.colorNode = mix( color( a ), color( b ), step( 0.5, fract( uv().y.mul( 2.5 ).add( 0.25 ) ) ) );
+		return m;
+
+	} );
+
+}
+
+// Gummy candy: glossy, with a glowing rim that fakes light scattering inside.
+export function gummy( c ) {
+
+	return memo( `gummy${c}`, () => {
+
+		const m = new THREE.MeshPhysicalNodeMaterial( { color: c, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 } );
+		const rim = pow( float( 1 ).sub( abs( dot( normalView, positionViewDirection ) ) ), 2.5 );
+		m.emissiveNode = color( c ).mul( rim.mul( 1.1 ).add( 0.22 ).add( night.mul( 0.4 ) ) );
+		return m;
+
+	} );
+
+}
+
+// Chocolate curtains pouring over the fountain bowls.
+export function chocoFlow() {
+
+	return memo( 'chocoFlow', () => {
+
+		const m = new THREE.MeshPhysicalNodeMaterial( { roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05, side: THREE.DoubleSide } );
+		const n = mx_noise_float( vec3( uv().x.mul( 24 ), uv().y.mul( 3 ).add( time.mul( 2.2 ) ), 0 ) );
+		m.colorNode = mix( color( 0x3d1a0c ), color( 0x94522a ), n.mul( 0.5 ).add( 0.5 ) );
+		return m;
+
+	} );
+
+}
+
+// The crystal sugar heart floating above the great spire.
+export function crystal() {
+
+	return memo( 'crystal', () => {
+
+		const m = new THREE.MeshPhysicalNodeMaterial( {
+			color: 0xff5fa8, roughness: 0.06, metalness: 0.15, clearcoat: 1, clearcoatRoughness: 0.02,
+			iridescence: 1, iridescenceIOR: 1.8, sheen: 0.5, sheenColor: new THREE.Color( 0xffc0e0 )
+		} );
+		const pulse = sin( time.mul( 2.2 ) ).mul( 0.2 ).add( 1 );
+		m.emissiveNode = color( 0xff3d8f ).mul( night.mul( 2.2 ).add( 0.25 ).add( heartFlash.mul( 4 ) ).mul( pulse ) ).add( glitter( 1.2, 4 ) );
+		return m;
+
+	} );
+
+}
+
+// Light beam shooting up from the heart at night.
+export function beam() {
+
+	return memo( 'beam', () => {
+
+		const m = new THREE.MeshBasicNodeMaterial( {
+			transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false
+		} );
+		const flick = sin( time.mul( 3 ).add( uv().x.mul( TWO_PI.mul( 3 ) ) ) ).mul( 0.15 ).add( 0.85 );
+		m.colorNode = color( 0xff7ab8 );
+		m.opacityNode = pow( uv().y.oneMinus(), 1.6 ).mul( night.mul( 0.35 ).add( heartFlash.mul( 0.6 ) ) ).mul( flick );
 		return m;
 
 	} );

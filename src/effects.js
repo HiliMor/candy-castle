@@ -21,8 +21,8 @@ export class SprinkleRain {
 
 			const i = instanceIndex;
 			const a = hash( i ).mul( TWO_PI );
-			const r = hash( i.add( 7 ) ).sqrt().mul( 90 );
-			pos.element( i ).assign( vec3( cos( a ).mul( r ), hash( i.add( 13 ) ).mul( 110 ).sub( 40 ), sin( a ).mul( r ) ) );
+			const r = hash( i.add( 7 ) ).sqrt().mul( 125 );
+			pos.element( i ).assign( vec3( cos( a ).mul( r ), hash( i.add( 13 ) ).mul( 150 ).sub( 50 ), sin( a ).mul( r ) ) );
 
 		} )().compute( count );
 
@@ -36,9 +36,9 @@ export class SprinkleRain {
 			p.x.addAssign( sway.mul( deltaTime ).mul( 0.8 ) );
 			p.z.addAssign( cos( time.mul( 0.5 ).add( p.y.mul( 0.1 ) ) ).mul( deltaTime ).mul( 0.6 ) );
 			const landed = p.y.lessThan( 0.2 ).and( p.y.greaterThan( - 1 ) ).and( length( p.xz ).lessThan( CAKE_R ) );
-			If( p.y.lessThan( - 40 ).or( landed ), () => {
+			If( p.y.lessThan( - 50 ).or( landed ), () => {
 
-				p.y.assign( 70 );
+				p.y.assign( 100 );
 
 			} );
 
@@ -174,7 +174,7 @@ export class Effects {
 
 		this.rockets.push( {
 			pos: from.clone(),
-			vel: new THREE.Vector3( ( Math.random() - 0.5 ) * 6, 30 + Math.random() * 12, ( Math.random() - 0.5 ) * 6 ),
+			vel: new THREE.Vector3( ( Math.random() - 0.5 ) * 6, 22 + Math.random() * 7, ( Math.random() - 0.5 ) * 6 ),
 			delay,
 			color: FW_COLS[ ( Math.random() * FW_COLS.length ) | 0 ],
 			shape: Math.random() < 0.3 ? 'heart' : Math.random() < 0.5 ? 'ring' : 'sphere',

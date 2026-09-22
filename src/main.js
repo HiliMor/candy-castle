@@ -4,11 +4,11 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-import { night } from './materials.js';
+import { night, heartFlash } from './materials.js';
 import { buildWorld, lollipop, iceCream, candyCane, kiss, CAKE_R, SUN_DIR } from './world.js';
 import { SprinkleRain, Effects } from './effects.js';
 import { CandyAudio } from './audio.js';
-import { squash, spin, grow, updateAnims } from './anim.js';
+import { squash, spin, hop, grow, updateAnims } from './anim.js';
 
 const $ = ( id ) => document.getElementById( id );
 
@@ -42,23 +42,23 @@ $( 'backend' ).classList.toggle( 'fallback', ! isWebGPU );
 
 const scene = new THREE.Scene();
 const DAY_FOG = new THREE.Color( 0xffd9ec ), NIGHT_FOG = new THREE.Color( 0x1b1440 );
-scene.fog = new THREE.Fog( DAY_FOG.clone(), 140, 520 );
+scene.fog = new THREE.Fog( DAY_FOG.clone(), 190, 700 );
 
 const pmrem = new THREE.PMREMGenerator( renderer );
 scene.environment = pmrem.fromScene( new RoomEnvironment(), 0.04 ).texture;
 scene.environmentIntensity = 0.55;
 
 const camera = new THREE.PerspectiveCamera( 42, innerWidth / innerHeight, 0.5, 2500 );
-const HOME = new THREE.Vector3( 46, 30, 64 );
-const START = new THREE.Vector3( - 60, 150, 300 );
+const HOME = new THREE.Vector3( 66, 44, 98 );
+const START = new THREE.Vector3( - 90, 230, 430 );
 camera.position.copy( START );
 
 const controls = new OrbitControls( camera, renderer.domElement );
-controls.target.set( 0, 10, 0 );
+controls.target.set( 0, 17, 0 );
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.minDistance = 14;
-controls.maxDistance = 200;
+controls.minDistance = 16;
+controls.maxDistance = 300;
 controls.maxPolarAngle = Math.PI * 0.62;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.35;
@@ -70,10 +70,10 @@ const hemi = new THREE.HemisphereLight( 0xfff0f8, 0xffb3d9, 1.3 );
 scene.add( hemi );
 
 const sun = new THREE.DirectionalLight( 0xfff1e0, 2.6 );
-sun.position.copy( SUN_DIR ).multiplyScalar( 90 );
+sun.position.copy( SUN_DIR ).multiplyScalar( 130 );
 sun.castShadow = true;
-sun.shadow.mapSize.set( 2048, 2048 );
-Object.assign( sun.shadow.camera, { left: - 48, right: 48, top: 48, bottom: - 48, near: 10, far: 220 } );
+sun.shadow.mapSize.set( 4096, 4096 );
+Object.assign( sun.shadow.camera, { left: - 66, right: 66, top: 66, bottom: - 66, near: 20, far: 320 } );
 sun.shadow.bias = - 0.0004;
 sun.shadow.normalBias = 0.03;
 sun.shadow.radius = 4;
@@ -91,12 +91,11 @@ const register = ( obj, info ) => {
 };
 
 const world = buildWorld( scene, register );
-const rain = new SprinkleRain( isWebGPU ? 6000 : 3500 );
+const rain = new SprinkleRain( isWebGPU ? 9000 : 5000 );
 scene.add( rain.mesh );
 const fx = new Effects( scene, camera, audio );
 
-const towerTops = world.towers.map( ( t ) => t.position.clone().add( new THREE.Vector3( 0, 20, 0 ) ) );
-const rocketBases = [ ...towerTops, new THREE.Vector3( 0, 34, 0 ) ];
+const rocketBases = world.rocketBases;
 
 // ---------- post-processing: bloom, sugar-rush hue spin, vignette ----------
 
@@ -146,9 +145,12 @@ const PLANT_KINDS = [ 'lollipop', 'icecream', 'cane', 'kiss' ];
 
 function plant( p ) {
 
+	// Plant in the courtyard or the meadow, never on the moat or the path.
 	const r = Math.hypot( p.x, p.z );
-	const inCastle = Math.abs( p.x ) < 14 && Math.abs( p.z ) < 14;
-	if ( r > CAKE_R - 0.8 || inCastle || ( r > 20 && r < 24.6 ) ) {
+	const onPath = Math.abs( p.x ) < 4 && p.z > 0;
+	const courtyard = r > 14.5 && r < 20.5 && Math.hypot( Math.abs( p.x ) - 17.4, p.z ) > 4.5;
+	const meadow = ( r > 24 && r < 28.2 ) || ( r > 33.8 && r < CAKE_R - 1 );
+	if ( onPath || p.y > 1 || ! ( courtyard || meadow ) ) {
 
 		audio.pop();
 		fx.burst( p.clone().setY( 0.3 ), 25, 0.6 );
@@ -196,6 +198,27 @@ function topOf( obj ) {
 
 	const t = obj.userData.top ?? new THREE.Vector3( 0, 3, 0 );
 	return obj.localToWorld( t.clone() );
+
+}
+
+// The crystal heart's grand finale: everything goes off at once.
+function celebrate() {
+
+	heartFlash.value = 1;
+	spin( world.heart.userData.spinner, 20 );
+	squash( world.heart, 0.8 );
+	audio.chime();
+	fx.burst( world.heart.position.clone(), 220, 1.4 );
+	fx.show( rocketBases, 18 );
+	world.bears.forEach( ( b, i ) => setTimeout( () => hop( b.obj ), i * 90 ) );
+	world.towers.forEach( ( t, i ) => setTimeout( () => squash( t, 0.7 ), i * 60 ) );
+
+}
+
+// Pops every piece of the castle into place, from the walls up to the heart.
+function assemble() {
+
+	for ( const [ obj, delay ] of world.build ) grow( obj, delay );
 
 }
 
@@ -268,6 +291,23 @@ function activate( hit ) {
 			break;
 
 		}
+
+		case 'bear':
+			hop( target );
+			squash( target.userData.inner, 1 );
+			audio.boing();
+			fx.burst( topOf( target ), 30, 0.7 );
+			break;
+
+		case 'fountain':
+			squash( target, 0.6 );
+			audio.splash();
+			fx.burst( topOf( target ), 70, 0.9 );
+			break;
+
+		case 'heart':
+			celebrate();
+			break;
 
 		case 'river':
 			audio.splash();
@@ -412,6 +452,13 @@ addEventListener( 'keydown', ( e ) => {
 	else if ( k === 's' ) setMode( 'storm' );
 	else if ( k === 'm' ) setMusic( ! audio.musicOn );
 	else if ( k === 'h' ) document.body.classList.toggle( 'hide-ui' );
+	else if ( k === 'b' ) {
+
+		audio.unlock();
+		audio.chime();
+		assemble();
+
+	}
 
 } );
 
@@ -450,6 +497,7 @@ async function start() {
 
 	await renderer.compute( rain.init );
 	await renderer.compileAsync( scene, camera );
+	assemble();
 	$( 'loading' ).classList.add( 'done' );
 	document.body.classList.add( 'ready' );
 	renderer.setAnimationLoop( frame );
@@ -491,6 +539,8 @@ function frame( ts ) {
 	scene.fog.color.lerpColors( DAY_FOG, NIGHT_FOG, n );
 	glow.strength.value = THREE.MathUtils.lerp( 0.18, 0.65, n );
 	for ( const l of world.lamps ) l.intensity = n * 60;
+	heartFlash.value = Math.max( 0, heartFlash.value - dt * 0.6 );
+	world.heartLight.intensity = n * 220 + heartFlash.value * 400;
 
 	// Sugar rush: spin the hue wheel and make the castle dance
 	if ( modes.rush ) {
@@ -504,6 +554,7 @@ function frame( ts ) {
 			const tw = world.towers[ Math.floor( Math.random() * world.towers.length ) ];
 			squash( tw, 0.55 );
 			for ( let i = 0; i < 4; i ++ ) world.gumdrops.hop( Math.floor( Math.random() * world.gumdrops.mesh.count ) );
+			hop( world.bears[ Math.floor( Math.random() * world.bears.length ) ].obj );
 
 		}
 
