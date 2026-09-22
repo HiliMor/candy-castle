@@ -58,6 +58,10 @@ const mergeable = ( m ) => {
 
 };
 
+// Colours and pattern sizes are passed as uniforms, not constants, so materials
+// that differ only in flavour share one compiled shader. This keeps start-up fast.
+const col = ( c ) => uniform( new THREE.Color( c ) );
+
 const glossy = ( opts = {} ) => new THREE.MeshPhysicalNodeMaterial( {
 	roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.06, ...opts
 } );
@@ -68,11 +72,13 @@ export function stripes( a, b, { cu = 6, cv = 3, width = 0.5, glow = 0 } = {} ) 
 	return memo( `stripes${a}${b}${cu}${cv}${width}${glow}`, () => {
 
 		const m = glossy();
-		const s = fract( uv().x.mul( cu ).add( uv().y.mul( cv ) ) );
+		const s = fract( uv().x.mul( uniform( cu ) ).add( uv().y.mul( uniform( cv ) ) ) );
 		const d = abs( s.sub( 0.5 ) );
-		const t = smoothstep( width * 0.5 - 0.03, width * 0.5 + 0.03, d );
-		m.colorNode = mix( color( b ), color( a ), t );
-		if ( glow ) m.emissiveNode = mix( color( b ), color( a ), t ).mul( night.mul( glow ) );
+		const hw = uniform( width * 0.5 );
+		const t = smoothstep( hw.sub( 0.03 ), hw.add( 0.03 ), d );
+		const c = mix( col( b ), col( a ), t );
+		m.colorNode = c;
+		if ( glow ) m.emissiveNode = c.mul( night.mul( uniform( glow ) ) );
 		return mergeable( m );
 
 	} );
@@ -88,11 +94,11 @@ export function swirl( a, b, { arms = 2, spiral = 5, glow = 0 } = {} ) {
 		const p = positionLocal;
 		const ang = atan( p.z, p.x ).div( TWO_PI );
 		const r = length( p.xz );
-		const s = fract( ang.mul( arms ).add( r.mul( spiral ) ) );
+		const s = fract( ang.mul( uniform( arms ) ).add( r.mul( uniform( spiral ) ) ) );
 		const t = smoothstep( 0.46, 0.54, s ).mul( smoothstep( 1.0, 0.94, s ) );
-		const c = mix( color( a ), color( b ), t );
+		const c = mix( col( a ), col( b ), t );
 		m.colorNode = c;
-		m.emissiveNode = glow ? c.mul( night.mul( glow ).add( 0.05 ) ) : glitter( 30, 1.2 );
+		m.emissiveNode = glow ? c.mul( night.mul( uniform( glow ) ).add( 0.05 ) ) : glitter( 30, 1.2 );
 		return m;
 
 	} );
@@ -111,7 +117,7 @@ export function wafer( a, b ) {
 		const d = min( min( fx, fx.oneMinus() ), min( fy, fy.oneMinus() ) );
 		const line = smoothstep( 0.1, 0.03, d );
 		const n = mx_noise_float( pw.mul( 3.0 ) ).mul( 0.06 );
-		m.colorNode = mix( color( a ), color( b ), line ).add( n );
+		m.colorNode = mix( col( a ), col( b ), line ).add( n );
 		return mergeable( m );
 
 	} );
@@ -123,15 +129,12 @@ export function frosting( base, { sprinkleScale = 0, density = 0.55 } = {} ) {
 
 	return memo( `frost${base}${sprinkleScale}${density}`, () => {
 
-		const m = new THREE.MeshPhysicalNodeMaterial( {
-			roughness: 0.42, sheen: 0.6, sheenRoughness: 0.4, sheenColor: new THREE.Color( 0xffffff ),
-			clearcoat: 0.35, clearcoatRoughness: 0.3
-		} );
+		const m = new THREE.MeshStandardNodeMaterial( { roughness: 0.36 } );
 		const n = mx_noise_float( positionWorld.mul( 0.35 ) ).mul( 0.05 );
-		let c = color( base ).add( n );
+		let c = col( base ).add( n );
 		if ( sprinkleScale ) {
 
-			const s = sprinkles( uv().mul( sprinkleScale ), density );
+			const s = sprinkles( uv().mul( uniform( sprinkleScale ) ), uniform( density ) );
 			c = mix( c, s.col, s.mask );
 
 		}
@@ -152,7 +155,7 @@ export function donut( icing ) {
 		const edge = normalLocal.z.add( 0.25 ).add( sin( uv().x.mul( TWO_PI.mul( 14 ) ) ).mul( 0.14 ) );
 		const icingMask = smoothstep( -0.04, 0.04, edge );
 		const s = sprinkles( uv().mul( vec2( 70, 14 ) ), 0.5 );
-		const top = mix( color( icing ), s.col, s.mask );
+		const top = mix( col( icing ), s.col, s.mask );
 		const dough = mix( color( 0xd9954a ), color( 0xf2c27b ), mx_noise_float( positionLocal.mul( 4 ) ).mul( 0.5 ).add( 0.5 ) );
 		m.colorNode = mix( dough, top, icingMask );
 		m.roughnessNode = mix( float( 0.75 ), float( 0.18 ), icingMask );
@@ -184,10 +187,7 @@ export function gumdrop() {
 
 	return memo( 'gumdrop', () => {
 
-		const m = new THREE.MeshPhysicalNodeMaterial( {
-			roughness: 0.38, clearcoat: 0.5, clearcoatRoughness: 0.35,
-			sheen: 1, sheenColor: new THREE.Color( 0xffffff ), sheenRoughness: 0.3
-		} );
+		const m = new THREE.MeshStandardNodeMaterial( { roughness: 0.32 } );
 		m.emissiveNode = glitter( 18, 2.5 );
 		return m;
 
@@ -260,7 +260,7 @@ export function lamp( c ) {
 	return memo( `lamp${c}`, () => {
 
 		const m = new THREE.MeshStandardNodeMaterial( { roughness: 0.2, color: c } );
-		m.emissiveNode = color( c ).mul( night.mul( 5 ).add( 0.25 ) );
+		m.emissiveNode = col( c ).mul( night.mul( 5 ).add( 0.25 ) );
 		return mergeable( m );
 
 	} );
@@ -272,13 +272,12 @@ export function cloud( c ) {
 
 	return memo( `cloud${c}`, () => {
 
-		const m = new THREE.MeshPhysicalNodeMaterial( {
-			roughness: 1, sheen: 1, sheenColor: new THREE.Color( 0xffffff ), sheenRoughness: 0.8
-		} );
+		const m = new THREE.MeshStandardNodeMaterial( { roughness: 1 } );
 		const wobble = mx_noise_float( positionLocal.mul( 1.4 ).add( time.mul( 0.25 ) ) ).mul( 0.22 );
 		m.positionNode = positionLocal.add( normalLocal.mul( wobble ) );
-		m.colorNode = color( c );
-		m.emissiveNode = color( c ).mul( mix( float( 0.12 ), float( 0.35 ), night ) );
+		const cc = col( c );
+		m.colorNode = cc;
+		m.emissiveNode = cc.mul( mix( float( 0.12 ), float( 0.35 ), night ) );
 		return m;
 
 	} );
@@ -296,7 +295,7 @@ export function flag( a, b ) {
 		const wave = sin( time.mul( 6 ).sub( p.x.mul( 1.8 ) ) ).mul( u.mul( 0.45 ) )
 			.add( sin( time.mul( 3.1 ).sub( p.x ) ).mul( u.mul( 0.15 ) ) );
 		m.positionNode = vec3( p.x, p.y.mul( float( 1 ).sub( u.mul( 0.9 ) ) ), p.z.add( wave ) );
-		m.colorNode = mix( color( a ), color( b ), step( 0.5, fract( uv().y.mul( 2.5 ).add( 0.25 ) ) ) );
+		m.colorNode = mix( col( a ), col( b ), step( 0.5, fract( uv().y.mul( 2.5 ).add( 0.25 ) ) ) );
 		return m;
 
 	} );
@@ -310,7 +309,7 @@ export function gummy( c ) {
 
 		const m = new THREE.MeshPhysicalNodeMaterial( { color: c, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 } );
 		const rim = pow( float( 1 ).sub( abs( dot( normalView, positionViewDirection ) ) ), 2.5 );
-		m.emissiveNode = color( c ).mul( rim.mul( 1.1 ).add( 0.22 ).add( night.mul( 0.4 ) ) );
+		m.emissiveNode = col( c ).mul( rim.mul( 1.1 ).add( 0.22 ).add( night.mul( 0.4 ) ) );
 		return m;
 
 	} );

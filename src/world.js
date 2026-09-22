@@ -1093,8 +1093,7 @@ export function buildWorld( scene, register ) {
 
 	build.push( [ gumdrops.mesh, 2.6 ] );
 
-	// ----- gumball lamps along the path -----
-	const lamps = [];
+	// ----- gumball lamps along the path (they glow; bloom does the rest) -----
 	for ( const [ x, z ] of [ [ - 3.6, 24.4 ], [ 3.6, 24.4 ], [ - 3.8, 35.6 ], [ 3.8, 35.6 ] ] ) {
 
 		const g = new THREE.Group();
@@ -1108,10 +1107,6 @@ export function buildWorld( scene, register ) {
 		g.position.set( x, 0, z );
 		scene.add( shadow( g ) );
 		register( g, { kind: 'lamp', label: 'Gumball lamp' } );
-		const light = new THREE.PointLight( c, 0, 14, 1.6 );
-		light.position.set( x, 4, z );
-		scene.add( light );
-		lamps.push( light );
 
 	}
 
@@ -1250,7 +1245,7 @@ export function buildWorld( scene, register ) {
 
 	} );
 
-	return { updaters, build, towers, rocketBases, keep, heart, heartLight, lamps, gumdrops, gate, bears };
+	return { updaters, build, towers, rocketBases, keep, heart, heartLight, gumdrops, gate, bears };
 
 }
 

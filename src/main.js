@@ -100,7 +100,7 @@ const rocketBases = world.rocketBases;
 // ---------- post-processing: bloom, sugar-rush hue spin, vignette ----------
 
 const pipeline = new THREE.RenderPipeline( renderer );
-const scenePass = pass( scene, camera );
+const scenePass = pass( scene, camera, { samples: 4 } );
 const sceneColor = scenePass.getTextureNode( 'output' );
 const glow = bloom( sceneColor, 0.55, 0.35, 1.1 );
 const hueU = uniform( 0 ), satU = uniform( 1 );
@@ -496,7 +496,7 @@ controls.addEventListener( 'start', () => {
 async function start() {
 
 	await renderer.compute( rain.init );
-	await renderer.compileAsync( scene, camera );
+	await scenePass.compileAsync( renderer ); // compile for the pass's own target, not the canvas
 	assemble();
 	$( 'loading' ).classList.add( 'done' );
 	document.body.classList.add( 'ready' );
@@ -538,7 +538,6 @@ function frame( ts ) {
 	scene.environmentIntensity = THREE.MathUtils.lerp( 0.55, 0.18, n );
 	scene.fog.color.lerpColors( DAY_FOG, NIGHT_FOG, n );
 	glow.strength.value = THREE.MathUtils.lerp( 0.18, 0.65, n );
-	for ( const l of world.lamps ) l.intensity = n * 60;
 	heartFlash.value = Math.max( 0, heartFlash.value - dt * 0.6 );
 	world.heartLight.intensity = n * 220 + heartFlash.value * 400;
 
