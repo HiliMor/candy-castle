@@ -49,12 +49,12 @@ scene.environment = pmrem.fromScene( new RoomEnvironment(), 0.04 ).texture;
 scene.environmentIntensity = 0.55;
 
 const camera = new THREE.PerspectiveCamera( 42, innerWidth / innerHeight, 0.5, 2500 );
-const HOME = new THREE.Vector3( 66, 44, 98 );
+const HOME = new THREE.Vector3( - 30, 46, 112 );
 const START = new THREE.Vector3( - 90, 230, 430 );
 camera.position.copy( START );
 
 const controls = new OrbitControls( camera, renderer.domElement );
-controls.target.set( 0, 17, 0 );
+controls.target.set( - 6, 16, 0 );
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.minDistance = 16;
@@ -307,6 +307,43 @@ function activate( hit ) {
 
 		case 'heart':
 			celebrate();
+			break;
+
+		case 'slide':
+			world.slide.userData.boost();
+			audio.wheee();
+			fx.burst( point.clone(), 40, 0.8 );
+			break;
+
+		case 'cupcake': {
+
+			// Blow out the candle, make a wish, and it relights itself.
+			const flame = target.userData.flame;
+			flame.visible = false;
+			squash( target, 0.5 );
+			audio.whoosh();
+			fx.burst( target.localToWorld( new THREE.Vector3( 0, 18, 0 ) ), 60, 0.5 );
+			setTimeout( () => {
+
+				flame.visible = true;
+				audio.chime();
+				fx.launch( target.localToWorld( new THREE.Vector3( 0, 19, 0 ) ) );
+
+			}, 1500 );
+			break;
+
+		}
+
+		case 'island':
+			squash( target, 0.6 );
+			audio.boing();
+			fx.burst( topOf( target ), 70, 1 );
+			break;
+
+		case 'spoon':
+			squash( target, 0.35 );
+			audio.clang();
+			fx.burst( topOf( target ), 50, 0.9 );
 			break;
 
 		case 'river':

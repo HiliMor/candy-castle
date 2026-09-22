@@ -147,6 +147,19 @@ export class CandyAudio {
 
 	}
 
+	clang() {
+
+		[ 1320, 1980, 2710, 3530 ].forEach( ( f, i ) => this.tone( f, 1.6 - i * 0.3, { type: i ? 'sine' : 'triangle', vol: 0.16 / ( i + 1 ) } ) );
+
+	}
+
+	wheee() {
+
+		this.tone( 950, 1.1, { type: 'triangle', slide: 240, vol: 0.2 } );
+		this.tone( 1900, 0.8, { slide: 480, vol: 0.05, when: 0.05 } );
+
+	}
+
 	door() {
 
 		this.tone( 110, 0.6, { type: 'sawtooth', slide: 160, vol: 0.06 } );

@@ -2,6 +2,8 @@
 
 An interactive 3D candy fortress on a floating layered cake, built with **three.js r186** and the **WebGPU renderer**. All materials are written in TSL, the three.js shading language. If a browser has no WebGPU, the page falls back to WebGL 2.
 
+![Candy Castle](screenshot-crazy.jpg)
+
 ![Candy Castle at night](screenshot.jpg)
 
 ![Castle detail](screenshot-detail.jpg)
@@ -18,6 +20,13 @@ The castle assembles itself piece by piece while the camera flies in:
 - **Festival lights** strung from the spire to every outer tower.
 - **Two chocolate fountains** in the courtyard, a chocolate moat, and **gummy bear guards** that patrol the walls, guard the gate and dance on the terrace.
 
+No two towers are alike. They have different heights and widths, their soft-serve roofs curl sideways, and many lean a little. The walls are uneven too. The layout comes from a fixed random seed, so every visitor sees the same crooked castle. The strangest parts:
+
+- **A gumball helter-skelter** spirals around one tower. Gumballs roll down it endlessly and drop into the chocolate moat.
+- **A birthday-cupcake tower** with a flickering candle.
+- **The Floating Sprinkle Isle**, a chunk of cake that broke off and drifts beside the castle, joined to it by a licorice rope bridge.
+- **A giant's spoon** stuck in the cake, holding a scoop of strawberry.
+
 **Live demo:** https://hilimor.github.io/candy-castle/
 
 ## Things to click
@@ -27,6 +36,10 @@ The castle assembles itself piece by piece while the camera flies in:
 | 💖 The crystal heart | The grand finale: fireworks, a light flash, and every bear and tower jumps |
 | 🏰 Towers | They squash and bounce, spray sprinkles and launch a firework |
 | 🐻 Gummy bears | They jump |
+| 🎂 The cupcake tower | Blow out the candle and make a wish; it relights with a firework |
+| 🌀 The gumball slide | The gumballs speed up |
+| 🏝️ The floating island | It wobbles |
+| 🥄 The giant spoon | Clang! |
 | ⛲ Chocolate fountains | A chocolatey splash |
 | 👑 The keep | A full fireworks show |
 | 🍭 Lollipops | They spin and chime |

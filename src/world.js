@@ -14,6 +14,18 @@ export const SUN_DIR = new THREE.Vector3( 0.55, 0.62, 0.3 ).normalize();
 const rand = ( a, b ) => a + Math.random() * ( b - a );
 const pick = ( arr ) => arr[ Math.floor( Math.random() * arr.length ) ];
 
+// Seeded random (mulberry32) for the castle's quirks, so the same crooked
+// castle greets every visitor. Garden decorations still use Math.random.
+let seed = 20260922;
+const srand = ( a, b ) => {
+
+	seed = ( seed + 0x6D2B79F5 ) | 0;
+	let t = Math.imul( seed ^ ( seed >>> 15 ), 1 | seed );
+	t = ( t + Math.imul( t ^ ( t >>> 7 ), 61 | t ) ) ^ t;
+	return a + ( ( ( t ^ ( t >>> 14 ) ) >>> 0 ) / 4294967296 ) * ( b - a );
+
+};
+
 export const FLAVOURS = [
 	[ 0xff5fa2, 0xfff4f8 ], // strawberry
 	[ 0x4fd6b0, 0xf2fff9 ], // mint
@@ -38,7 +50,7 @@ function shadow( obj ) {
 
 // ---------- shared geometries ----------
 
-function softServeGeo( R, H, turns = 4, amp = 0.13, n = 70, segments = 96 ) {
+function softServeGeo( R, H, turns = 4, amp = 0.13, n = 70, segments = 96, bend = 0 ) {
 
 	const pts = [];
 	for ( let i = 0; i <= n; i ++ ) {
@@ -56,7 +68,7 @@ function softServeGeo( R, H, turns = 4, amp = 0.13, n = 70, segments = 96 ) {
 		const phi = Math.atan2( x, z );
 		const t = y / H;
 		const k = 1 + amp * Math.sin( phi + t * turns * Math.PI * 2 ) * ( 1 - t * 0.5 );
-		p.setXYZ( i, x * k, y, z * k );
+		p.setXYZ( i, x * k + bend * H * Math.pow( t, 2.2 ), y, z * k ); // bend curls the tip sideways
 
 	}
 
@@ -328,7 +340,7 @@ function pennant( y, flavour ) {
 
 }
 
-function tower( { r, h, roofH, flavour, icing, turns = 4, top = 'cherry' } ) {
+function tower( { r, h, roofH, flavour, icing, turns = 4, top = 'cherry', bend = 0 } ) {
 
 	const g = new THREE.Group();
 	const body = new THREE.Mesh( new THREE.CylinderGeometry( r, r * 1.08, h, 48, 1 ), M.stripes( flavour[ 0 ], flavour[ 1 ], { cu: 6, cv: h / 4 } ) );
@@ -339,7 +351,7 @@ function tower( { r, h, roofH, flavour, icing, turns = 4, top = 'cherry' } ) {
 	const crown = new THREE.Mesh( new THREE.TorusGeometry( r * 1.05, 0.62, 24, 64 ), M.donut( icing ) );
 	crown.rotation.x = - Math.PI / 2;
 	crown.position.y = h;
-	const roof = new THREE.Mesh( softServeGeo( r * 1.22, roofH, turns ), M.stripes( flavour[ 1 ], flavour[ 0 ], { cu: 2, cv: turns, width: 0.5 } ) );
+	const roof = new THREE.Mesh( softServeGeo( r * 1.22, roofH, turns, 0.13, 70, 96, bend ), M.stripes( flavour[ 1 ], flavour[ 0 ], { cu: 2, cv: turns, width: 0.5 } ) );
 	roof.position.y = h + 0.1;
 	g.add( body, foot, crown, roof );
 
@@ -362,20 +374,24 @@ function tower( { r, h, roofH, flavour, icing, turns = 4, top = 'cherry' } ) {
 
 	}
 
-	const tipY = h + roofH;
+	const tipY = h + roofH, tipX = bend * roofH;
 	if ( top === 'cherry' ) {
 
 		const c = cherry();
-		c.position.y = tipY - 0.35;
+		c.position.set( tipX, tipY - 0.35, 0 );
 		g.add( c );
 
 	} else if ( top === 'flag' ) {
 
-		g.add( pennant( tipY - 0.4, flavour ) );
+		const f = pennant( tipY - 0.4, flavour );
+		f.position.x = tipX;
+		g.add( f );
 
 	}
 
-	g.userData.top = new THREE.Vector3( 0, tipY + ( top === 'flag' ? 4 : 1 ), 0 );
+	g.userData.top = new THREE.Vector3( tipX, tipY + ( top === 'flag' ? 4 : 1 ), 0 );
+	g.userData.crown = new THREE.Vector3( 0, h, 0 );
+	g.userData.r = r;
 	return mergeStatic( shadow( g ) );
 
 }
@@ -517,6 +533,281 @@ function rainbow() {
 
 }
 
+
+// ---------- the crazy bits ----------
+
+// A flat ribbon that follows a curve, with an underside so it reads from below.
+function ribbonGeo( curve, width, segs ) {
+
+	const up = new THREE.Vector3( 0, 1, 0 );
+	const side = new THREE.Vector3();
+	const pos = [], uv = [], idx = [];
+	for ( const off of [ 0, - 0.12 ] ) {
+
+		const base = pos.length / 3;
+		for ( let i = 0; i <= segs; i ++ ) {
+
+			const t = i / segs;
+			const p = curve.getPointAt( t );
+			side.crossVectors( curve.getTangentAt( t ), up ).normalize();
+			pos.push( p.x - side.x * width, p.y + off, p.z - side.z * width, p.x + side.x * width, p.y + off, p.z + side.z * width );
+			uv.push( t, 0, t, 1 );
+
+		}
+
+		for ( let i = 0; i < segs; i ++ ) {
+
+			const a = base + i * 2, b = a + 1, c = a + 2, d = a + 3;
+			if ( off === 0 ) idx.push( a, b, c, b, d, c );
+			else idx.push( a, c, b, b, c, d );
+
+		}
+
+	}
+
+	const g = new THREE.BufferGeometry();
+	g.setAttribute( 'position', new THREE.Float32BufferAttribute( pos, 3 ) );
+	g.setAttribute( 'uv', new THREE.Float32BufferAttribute( uv, 2 ) );
+	g.setIndex( idx );
+	g.computeVertexNormals();
+	if ( g.attributes.normal.getY( 0 ) < 0 ) {
+
+		// Flip winding so the top surface faces up.
+		const ix = g.index.array;
+		for ( let i = 0; i < ix.length; i += 3 ) [ ix[ i + 1 ], ix[ i + 2 ] ] = [ ix[ i + 2 ], ix[ i + 1 ] ];
+		g.computeVertexNormals();
+
+	}
+
+	return g;
+
+}
+
+// A helter-skelter wrapped around a tower. Gumballs roll down it forever and
+// splash into the chocolate moat.
+function spiralSlide( center, a, h, rTower ) {
+
+	const RH = rTower + 2.4;
+	const yTop = h - 0.8, yEnd = 9.2, turns = 2.25;
+	const pts = [];
+	for ( let i = 0; i <= 90; i ++ ) {
+
+		const t = i / 90;
+		const th = a - ( 1 - t ) * turns * Math.PI * 2;
+		pts.push( new THREE.Vector3( center.x + Math.sin( th ) * RH, THREE.MathUtils.lerp( yTop, yEnd, t ), center.z + Math.cos( th ) * RH ) );
+
+	}
+
+	const out = radial( a ), tan = tangent( a );
+	const end = new THREE.Vector3( center.x, 0, center.z ).addScaledVector( out, RH );
+	pts.push(
+		end.clone().addScaledVector( tan, 1.8 ).addScaledVector( out, 0.8 ).setY( yEnd - 1.5 ),
+		end.clone().addScaledVector( tan, 3 ).addScaledVector( out, 2.2 ).setY( 3.5 ),
+		end.clone().addScaledVector( tan, 3.6 ).addScaledVector( out, 3 ).setY( 0.4 )
+	);
+	const curve = new THREE.CatmullRomCurve3( pts );
+	const L = curve.getLength();
+
+	const g = new THREE.Group();
+	const track = new THREE.Group();
+	track.add( new THREE.Mesh( ribbonGeo( curve, 0.95, 500 ), M.stripes( 0xff5fa2, 0xffffff, { cu: 180, cv: 0, width: 0.5 } ) ) );
+	const up = new THREE.Vector3( 0, 1, 0 ), side = new THREE.Vector3();
+	for ( const s of [ - 1, 1 ] ) {
+
+		const lip = [];
+		for ( let i = 0; i <= 160; i ++ ) {
+
+			const t = i / 160;
+			side.crossVectors( curve.getTangentAt( t ), up ).normalize();
+			lip.push( curve.getPointAt( t ).addScaledVector( side, s * 1.0 ).add( new THREE.Vector3( 0, 0.22, 0 ) ) );
+
+		}
+
+		track.add( new THREE.Mesh( new THREE.TubeGeometry( new THREE.CatmullRomCurve3( lip ), 400, 0.13, 6 ), M.candyGloss( 0xffffff, { roughness: 0.2 } ) ) );
+
+	}
+
+	g.add( mergeStatic( shadow( track ) ) );
+
+	const N = 12;
+	const balls = new THREE.InstancedMesh( sphereGeo, M.candyGloss( 0xffffff, { roughness: 0.12 } ), N );
+	balls.castShadow = true;
+	balls.instanceMatrix.setUsage( THREE.DynamicDrawUsage );
+	const col = new THREE.Color();
+	const us = [];
+	for ( let i = 0; i < N; i ++ ) {
+
+		us.push( i / N );
+		balls.setColorAt( i, col.set( GUM_COLORS[ i % GUM_COLORS.length ] ) );
+
+	}
+
+	g.add( balls );
+	let boost = 0;
+	const m = new THREE.Matrix4(), qq = new THREE.Quaternion(), s3 = new THREE.Vector3();
+	g.userData.top = new THREE.Vector3( center.x, h, center.z );
+	g.userData.boost = () => boost = 3;
+	g.userData.update = ( dt ) => {
+
+		boost = Math.max( 0, boost - dt );
+		const speed = 7 * ( 1 + boost );
+		for ( let i = 0; i < N; i ++ ) {
+
+			us[ i ] = ( us[ i ] + speed * dt / L ) % 1;
+			const u = us[ i ];
+			const p = curve.getPointAt( u ).add( new THREE.Vector3( 0, 0.55, 0 ) );
+			side.crossVectors( curve.getTangentAt( u ), up ).normalize();
+			qq.setFromAxisAngle( side, - u * L / 0.45 );
+			const k = Math.min( 1, u / 0.02, ( 1 - u ) / 0.04 );
+			balls.setMatrixAt( i, m.compose( p, qq, s3.setScalar( 0.45 * Math.max( k, 0.001 ) ) ) );
+
+		}
+
+		balls.instanceMatrix.needsUpdate = true;
+
+	};
+
+	return g;
+
+}
+
+// A giant cupcake standing in for one of the towers, with a birthday candle.
+function cupcakeTower() {
+
+	const g = new THREE.Group();
+	const wrapperGeo = new THREE.CylinderGeometry( 3.6, 3.0, 8, 96, 2 );
+	const p = wrapperGeo.attributes.position;
+	for ( let i = 0; i < p.count; i ++ ) {
+
+		const x = p.getX( i ), z = p.getZ( i );
+		const k = 1 + 0.045 * Math.sin( Math.atan2( x, z ) * 24 ); // paper pleats
+		p.setXYZ( i, x * k, p.getY( i ), z * k );
+
+	}
+
+	wrapperGeo.computeVertexNormals();
+	const wrapper = new THREE.Mesh( wrapperGeo, M.stripes( 0x8fd8ff, 0xffffff, { cu: 24, cv: 0, width: 0.5 } ) );
+	wrapper.position.y = 4;
+	const rim = new THREE.Mesh( new THREE.TorusGeometry( 3.7, 0.3, 10, 64 ), M.frosting( 0xfffafc ) );
+	rim.rotation.x = - Math.PI / 2;
+	rim.position.y = 8;
+	const swirlTop = new THREE.Mesh( softServeGeo( 4.5, 7, 3, 0.22 ), M.frosting( 0xff9cc8, { sprinkleScale: 30, density: 0.55 } ) );
+	swirlTop.position.y = 7.8;
+	const candle = new THREE.Mesh( new THREE.CylinderGeometry( 0.35, 0.35, 3, 16 ), M.stripes( 0xfff06a, 0xff5fa2, { cu: 1, cv: 5 } ) );
+	candle.position.y = 15.6;
+	const wick = new THREE.Mesh( stickGeo, M.candyGloss( 0x3a2418, { roughness: 0.8 } ) );
+	wick.scale.set( 0.4, 0.4, 0.4 );
+	wick.position.y = 17.2;
+	g.add( wrapper, rim, swirlTop, candle, wick );
+	mergeStatic( shadow( g ) );
+
+	const flame = new THREE.Mesh( sphereGeo, M.flame() );
+	flame.scale.set( 0.32, 0.75, 0.32 );
+	flame.position.y = 17.95;
+	g.add( flame );
+	g.userData.flame = flame;
+	g.userData.crown = new THREE.Vector3( 0, 8, 0 );
+	g.userData.r = 3.6;
+	g.userData.top = new THREE.Vector3( 0, 19, 0 );
+	return g;
+
+}
+
+// A chunk of cake that broke off and floats beside the castle.
+function skyIsland() {
+
+	const g = new THREE.Group();
+	const body = new THREE.Group();
+	const rock = new THREE.Mesh( new THREE.CylinderGeometry( 7, 1.4, 8, 48, 3 ), M.sponge() );
+	rock.position.y = - 4.4;
+	const jam = new THREE.Mesh( new THREE.CylinderGeometry( 7.05, 6.4, 1, 48, 1, true ), M.frosting( 0xff4f8b ) );
+	jam.position.y = - 1.6;
+	const top = new THREE.Mesh( new THREE.CylinderGeometry( 7.3, 7.3, 0.8, 48 ), M.frosting( 0x9ff0cf, { sprinkleScale: 40, density: 0.55 } ) );
+	top.position.y = - 0.4;
+	body.add( rock, jam, top );
+	g.add( mergeStatic( shadow( body ) ) );
+
+	const t = tower( { r: 1.8, h: 10, roofH: 7, flavour: [ 0xa98bff, 0xfff4f8 ], icing: 0xff8fc2, top: 'flag', turns: 5, bend: 0.55 } );
+	t.position.set( 1.8, 0, - 1.2 );
+	t.rotation.set( 0.05, 1.2, 0.2 );
+	const pop = lollipop( 1.3, 3.4, [ 0xff3b7f, 0xfff06a ] );
+	pop.position.set( - 3.6, 0, 1.8 );
+	const cone = iceCream();
+	cone.position.set( - 0.8, 0, 4.2 );
+	cone.scale.setScalar( 0.8 );
+	const k = kiss();
+	k.position.set( 4.5, 0, 2.5 );
+	g.add( t, pop, cone, k );
+	g.userData.top = new THREE.Vector3( 0, 4, 0 );
+	return g;
+
+}
+
+// Licorice rope bridge with wafer planks, sagging between two points.
+function ropeBridge( A, B ) {
+
+	const g = new THREE.Group();
+	const flat = new THREE.Vector3( B.x - A.x, 0, B.z - A.z ).normalize();
+	const side = new THREE.Vector3().crossVectors( flat, new THREE.Vector3( 0, 1, 0 ) ).normalize();
+	const L = A.distanceTo( B ), sag = L * 0.12;
+	const at = ( t ) => A.clone().lerp( B, t ).add( new THREE.Vector3( 0, - sag * 4 * t * ( 1 - t ), 0 ) );
+	const plankGeo = new RoundedBoxGeometry( 2.4, 0.2, 0.55, 2, 0.08 );
+	const plankMat = M.wafer( 0xf2c078, 0xc98a45 );
+	const n = Math.floor( L / 0.75 );
+	for ( let i = 0; i <= n; i ++ ) {
+
+		const t = i / n;
+		const p = at( t );
+		const plank = new THREE.Mesh( plankGeo, plankMat );
+		plank.position.copy( p );
+		plank.lookAt( p.clone().add( at( Math.min( 1, t + 0.01 ) ).sub( at( Math.max( 0, t - 0.01 ) ) ) ) );
+		g.add( plank );
+
+	}
+
+	const rope = M.candyGloss( 0xc2185b, { roughness: 0.3 } );
+	for ( const s of [ - 1, 1 ] ) {
+
+		const pts = [];
+		for ( let i = 0; i <= 20; i ++ ) pts.push( at( i / 20 ).addScaledVector( side, s * 1.2 ).add( new THREE.Vector3( 0, 1.0, 0 ) ) );
+		g.add( new THREE.Mesh( new THREE.TubeGeometry( new THREE.CatmullRomCurve3( pts ), 64, 0.09, 6 ), rope ) );
+		for ( let i = 1; i < n; i += 3 ) {
+
+			const post = new THREE.Mesh( stickGeo, rope );
+			post.position.copy( at( i / n ).addScaledVector( side, s * 1.2 ).add( new THREE.Vector3( 0, 0.5, 0 ) ) );
+			post.scale.set( 0.6, 1, 0.6 );
+			g.add( post );
+
+		}
+
+	}
+
+	return mergeStatic( shadow( g ) );
+
+}
+
+// A giant silver spoon stuck in the cake, holding a scoop of strawberry.
+function giantSpoon() {
+
+	const g = new THREE.Group();
+	const metal = M.candyGloss( 0xeef2f7, { metalness: 1, roughness: 0.16 } );
+	const handle = new THREE.Mesh( new RoundedBoxGeometry( 1.5, 24, 0.55, 3, 0.26 ), metal );
+	handle.position.y = 9;
+	const bowl = new THREE.Mesh( sphereGeo, metal );
+	bowl.scale.set( 3, 4.2, 0.9 );
+	bowl.position.y = 24;
+	const scoop = new THREE.Mesh( sphereGeo, M.frosting( 0xffb8d9, { sprinkleScale: 40, density: 0.6 } ) );
+	scoop.scale.setScalar( 2.3 );
+	scoop.position.set( 0, 23.6, 1.3 );
+	const top = cherry();
+	top.scale.setScalar( 1.4 );
+	top.position.set( 0, 25.4, 1.8 );
+	g.add( handle, bowl, scoop, top );
+	g.userData.top = new THREE.Vector3( 0, 27, 1 );
+	return mergeStatic( shadow( g ) );
+
+}
+
 // ---------- build the whole world ----------
 
 const R1 = 24; // outer wall: octagon vertex radius
@@ -610,7 +901,7 @@ export function buildWorld( scene, register ) {
 	const capMat = M.frosting( 0xfffafc );
 	const wallDrips = [];
 
-	const segment = ( phi, o0, o1 ) => {
+	const segment = ( phi, o0, o1, WH = 7 ) => {
 
 		const u = radial( phi ), t = tangent( phi );
 		const len = o1 - o0, oc = ( o0 + o1 ) / 2;
@@ -665,7 +956,14 @@ export function buildWorld( scene, register ) {
 	};
 
 	const half = SIDE_L / 2;
-	for ( let k = 1; k < 8; k ++ ) segment( k * Math.PI / 4, - half + 1.2, half - 1.2 );
+	const wallH = [ WH ];
+	for ( let k = 1; k < 8; k ++ ) {
+
+		wallH[ k ] = srand( 5.8, 8.6 ); // no two walls the same height
+		segment( k * Math.PI / 4, - half + 1.2, half - 1.2, wallH[ k ] );
+
+	}
+
 	segment( 0, - half + 1.2, - 4.8 );
 	segment( 0, 4.8, half - 1.2 );
 
@@ -695,23 +993,58 @@ export function buildWorld( scene, register ) {
 	// ----- the eight outer towers, plus two gatehouse towers -----
 	const TOWER_NAMES = [ 'Strawberry', 'Mint', 'Grape', 'Lemon', 'Peach', 'Blueberry', 'Bubblegum', 'Sherbet' ];
 	const ICINGS = [ 0xffd1ec, 0x8fe3ff, 0xfff06a, 0xc6a8ff, 0xff8fc2, 0xffffff ];
+	// No two alike: random heights, girths, curled roofs and a drunken lean.
+	// Tower 1 wears a gumball slide and tower 6 is a giant birthday cupcake.
+	const outer = [];
+	let slide = null, cupcake = null;
 	for ( let k = 0; k < 8; k ++ ) {
 
 		const a = ( k + 0.5 ) * Math.PI / 4;
-		const t = tower( { r: 3, h: 15, roofH: 8, flavour: FLAVOURS[ k % 6 ], icing: ICINGS[ k % 6 ], top: 'flag', turns: 4 } );
-		t.position.set( Math.sin( a ) * R1, 0, Math.cos( a ) * R1 );
+		const pos = new THREE.Vector3( Math.sin( a ) * R1, 0, Math.cos( a ) * R1 );
+		let t;
+		if ( k === 6 ) {
+
+			t = cupcake = cupcakeTower();
+			t.rotation.y = srand( 0, 6.28 );
+			t.scale.setScalar( 1.35 );
+			register( t, { kind: 'cupcake', label: 'Birthday Cupcake Tower: make a wish!' } );
+
+		} else {
+
+			const h = k === 1 ? 19 : srand( 11.5, 21 );
+			t = tower( {
+				r: srand( 2.5, 3.5 ), h, roofH: srand( 6, 11.5 ), flavour: FLAVOURS[ k % 6 ], icing: ICINGS[ k % 6 ],
+				top: 'flag', turns: Math.round( srand( 3, 6 ) ), bend: srand( 0.05, 0.4 )
+			} );
+			t.rotation.set( k === 1 ? 0 : srand( - 0.09, 0.09 ), srand( 0, 6.28 ), k === 1 ? 0 : srand( - 0.09, 0.09 ) );
+			register( t, { kind: 'tower', label: `${TOWER_NAMES[ k ]} Tower` } );
+			if ( k === 1 ) {
+
+				slide = spiralSlide( pos, a, h, t.userData.r );
+				scene.add( slide );
+				register( slide, { kind: 'slide', label: 'Gumball helter-skelter' } );
+				build.push( [ slide, 3.0 ] );
+				updaters.push( slide.userData.update );
+
+			}
+
+		}
+
+		t.position.copy( pos );
+		t.updateMatrixWorld( true );
 		scene.add( t );
-		register( t, { kind: 'tower', label: `${TOWER_NAMES[ k ]} Tower` } );
 		towers.push( t );
-		rocketBases.push( t.position.clone().setY( 25 ) );
+		outer.push( t );
+		rocketBases.push( t.localToWorld( t.userData.top.clone() ) );
 		build.push( [ t, 0.2 + k * 0.12 ] );
 
 	}
 
 	for ( const x of [ - 4.6, 4.6 ] ) {
 
-		const t = tower( { r: 2, h: 12.5, roofH: 6, flavour: [ 0xff3b7f, 0xffffff ], icing: 0xfff06a, top: 'flag', turns: 3 } );
+		const t = tower( { r: 2, h: x < 0 ? 11.5 : 14.5, roofH: x < 0 ? 5.5 : 7, flavour: [ 0xff3b7f, 0xffffff ], icing: 0xfff06a, top: 'flag', turns: 3, bend: x < 0 ? 0.35 : 0.15 } );
 		t.position.set( x, 0, WALL_D );
+		t.rotation.y = x < 0 ? 2.4 : 0.3;
 		scene.add( t );
 		register( t, { kind: 'tower', label: 'Gatehouse Tower' } );
 		towers.push( t );
@@ -809,8 +1142,9 @@ export function buildWorld( scene, register ) {
 	for ( let k = 0; k < 6; k ++ ) {
 
 		const a = ( 30 + k * 60 ) * Math.PI / 180;
-		const t = tower( { r: 1.8, h: 8, roofH: 5, flavour: FLAVOURS[ ( k + 3 ) % 6 ], icing: ICINGS[ ( k + 2 ) % 6 ], turns: 3 } );
+		const t = tower( { r: srand( 1.5, 2.1 ), h: srand( 5.5, 11.5 ), roofH: srand( 3.5, 6.5 ), flavour: FLAVOURS[ ( k + 3 ) % 6 ], icing: ICINGS[ ( k + 2 ) % 6 ], turns: 3, bend: srand( 0, 0.45 ) } );
 		t.position.set( Math.sin( a ) * 11, TERRACE_TOP, Math.cos( a ) * 11 );
+		t.rotation.set( srand( - 0.06, 0.06 ), srand( 0, 6.28 ), srand( - 0.06, 0.06 ) );
 		scene.add( t );
 		register( t, { kind: 'tower', label: 'Terrace Turret' } );
 		towers.push( t );
@@ -866,8 +1200,9 @@ export function buildWorld( scene, register ) {
 
 	for ( const [ x, z ] of [ [ - 5.2, 4.2 ], [ 5.2, 4.2 ], [ - 5.2, - 4.2 ], [ 5.2, - 4.2 ] ] ) {
 
-		const t = tower( { r: 1.3, h: 5, roofH: 4, flavour: FLAVOURS[ Math.floor( rand( 0, 6 ) ) ], icing: 0xffffff, turns: 3 } );
+		const t = tower( { r: 1.3, h: srand( 3.5, 8 ), roofH: srand( 3, 5 ), flavour: FLAVOURS[ Math.floor( srand( 0, 6 ) ) ], icing: 0xffffff, turns: 3, bend: srand( 0, 0.5 ) } );
 		t.position.set( x, 10.5, z );
+		t.rotation.y = srand( 0, 6.28 );
 		keep.add( t );
 
 	}
@@ -875,8 +1210,9 @@ export function buildWorld( scene, register ) {
 	for ( let x = - 3.4; x <= 3.4; x += 1.7 ) for ( const z of [ - 5, 5 ] ) gumdrops.add( x, SPIRE_BASE, z, 0.6 );
 	for ( let z = - 2.4; z <= 2.4; z += 1.6 ) for ( const x of [ - 6, 6 ] ) gumdrops.add( x, SPIRE_BASE, z, 0.6 );
 
-	const spire = tower( { r: 3.6, h: 16, roofH: 12, flavour: [ 0xff7ab8, 0xfff3d6 ], icing: 0xfff06a, turns: 6, top: 'none' } );
+	const spire = tower( { r: 3.6, h: 16, roofH: 12, flavour: [ 0xff7ab8, 0xfff3d6 ], icing: 0xfff06a, turns: 6, top: 'none', bend: 0.28 } );
 	spire.position.y = 10.5;
+	spire.rotation.y = - 0.6; // curl the tip towards the visitor
 	const balcony = new THREE.Group();
 	const floor = new THREE.Mesh( new THREE.CylinderGeometry( 4.9, 4.4, 0.5, 48 ), M.frosting( 0xff9cc8 ) );
 	const rail = new THREE.Mesh( new THREE.TorusGeometry( 4.7, 0.1, 8, 64 ), M.candyGloss( 0xff5fa2 ) );
@@ -962,7 +1298,8 @@ export function buildWorld( scene, register ) {
 
 		const a = ( k + 0.5 ) * Math.PI / 4;
 		const from = radial( a ).multiplyScalar( 3.9 ).setY( SPIRE_BASE + 2.5 );
-		const to = radial( a ).multiplyScalar( R1 - 3.4 ).setY( 15.4 );
+		const crown = outer[ k ].localToWorld( outer[ k ].userData.crown.clone() );
+		const to = crown.clone().addScaledVector( radial( a ), - outer[ k ].userData.r - 0.4 ).setY( crown.y + 0.4 );
 		const at = ( t ) => from.clone().lerp( to, t ).setY( THREE.MathUtils.lerp( from.y, to.y, t ) - 2.5 * 4 * t * ( 1 - t ) );
 		const pts = [];
 		for ( let i = 0; i <= 12; i ++ ) pts.push( at( i / 12 ) );
@@ -1111,12 +1448,12 @@ export function buildWorld( scene, register ) {
 	}
 
 	// ----- gummy bear guards -----
-	const addBear = ( scale, pos, walk ) => {
+	const addBear = ( scale, pos, walk, parent = scene ) => {
 
 		const b = gummyBear( BEAR_COLS[ bears.length % BEAR_COLS.length ] );
 		b.scale.setScalar( scale );
 		b.position.copy( pos );
-		scene.add( b );
+		parent.add( b );
 		register( b, { kind: 'bear', label: 'Gummy bear guard' } );
 		build.push( [ b, 3.8 + bears.length * 0.05 ] );
 		bears.push( { obj: b, walk, phase: rand( 0, 6 ) } );
@@ -1127,7 +1464,7 @@ export function buildWorld( scene, register ) {
 	for ( let k = 1; k < 8; k ++ ) {
 
 		const phi = k * Math.PI / 4;
-		const base = radial( phi ).multiplyScalar( WALL_D - 0.35 ).setY( WH + 0.4 );
+		const base = radial( phi ).multiplyScalar( WALL_D - 0.35 ).setY( wallH[ k ] + 0.4 );
 		const a = base.clone().addScaledVector( tangent( phi ), - half + 3.4 );
 		const b = base.clone().addScaledVector( tangent( phi ), half - 3.4 );
 		addBear( 0.6, a, { a, b, t: Math.random(), dir: Math.random() < 0.5 ? 1 : - 1, speed: rand( 1.2, 2 ), len: a.distanceTo( b ) } );
@@ -1136,6 +1473,38 @@ export function buildWorld( scene, register ) {
 
 	for ( const x of [ - 5.4, 5.4 ] ) addBear( 0.9, new THREE.Vector3( x, 0, 26.2 ), null ).rotation.y = 0;
 	for ( const x of [ - 2.2, 2.2 ] ) addBear( 0.75, new THREE.Vector3( x, TERRACE_TOP, 8.8 ), null ).userData.dancer = true;
+
+	// ----- a runaway chunk of cake floating beside the castle -----
+	const island = skyIsland();
+	const ISLE = new THREE.Vector3( - 44, 20, - 13 );
+	island.position.copy( ISLE );
+	scene.add( island );
+	register( island, { kind: 'island', label: 'The Floating Sprinkle Isle' } );
+	build.push( [ island, 3.2 ] );
+	addBear( 0.8, new THREE.Vector3( - 1.5, 0, - 3.5 ), null, island ).userData.dancer = true;
+	updaters.push( ( dt, t ) => {
+
+		island.position.y = ISLE.y + Math.sin( t * 0.6 ) * 0.35;
+		island.rotation.z = Math.sin( t * 0.45 ) * 0.02;
+
+	} );
+
+	const anchorTower = outer[ 5 ];
+	const bridgeFrom = anchorTower.localToWorld( anchorTower.userData.crown.clone() );
+	const toIsle = new THREE.Vector3( ISLE.x - bridgeFrom.x, 0, ISLE.z - bridgeFrom.z ).normalize();
+	bridgeFrom.addScaledVector( toIsle, anchorTower.userData.r + 0.6 ).y += 0.3;
+	const bridgeTo = ISLE.clone().addScaledVector( toIsle, - 6.8 );
+	const ropes = ropeBridge( bridgeFrom, bridgeTo );
+	scene.add( ropes );
+	build.push( [ ropes, 3.5 ] );
+
+	// ----- a giant spoon, left in the cake by some giant with a sweet tooth -----
+	const spoon = giantSpoon();
+	spoon.position.set( - 35, 0, 27 );
+	spoon.rotation.set( - 0.15, 0.6, 0.32 );
+	scene.add( spoon );
+	register( spoon, { kind: 'spoon', label: 'A giant\'s spoon' } );
+	build.push( [ spoon, 2.4 ] );
 
 	updaters.push( ( dt ) => {
 
@@ -1245,7 +1614,7 @@ export function buildWorld( scene, register ) {
 
 	} );
 
-	return { updaters, build, towers, rocketBases, keep, heart, heartLight, gumdrops, gate, bears };
+	return { updaters, build, towers, rocketBases, keep, heart, heartLight, gumdrops, gate, bears, slide, cupcake, island };
 
 }
 

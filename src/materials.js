@@ -363,3 +363,19 @@ export function beam() {
 	} );
 
 }
+
+// Birthday-candle flame: flickers in the vertex shader and glows through bloom.
+export function flame() {
+
+	return memo( 'flame', () => {
+
+		const m = new THREE.MeshBasicNodeMaterial( { fog: false } );
+		const p = positionLocal;
+		const sway = sin( time.mul( 13 ).add( p.y.mul( 6 ) ) ).mul( 0.08 ).add( sin( time.mul( 7.3 ) ).mul( 0.05 ) );
+		m.positionNode = vec3( p.x.add( sway.mul( p.y.add( 1 ) ) ), p.y.mul( sin( time.mul( 9 ) ).mul( 0.08 ).add( 1 ) ), p.z );
+		m.colorNode = mix( color( 0xffe36e ), color( 0xff6a1f ), smoothstep( - 0.3, 0.9, p.y ) ).mul( 3.5 );
+		return m;
+
+	} );
+
+}
